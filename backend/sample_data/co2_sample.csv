@@ -1,73 +1,217 @@
-date,value
-2018-01-01,407.20
-2018-02-01,407.05
-2018-03-01,409.65
-2018-04-01,410.20
-2018-05-01,410.95
-2018-06-01,409.75
-2018-07-01,408.90
-2018-08-01,407.85
-2018-09-01,408.10
-2018-10-01,409.50
-2018-11-01,410.85
-2018-12-01,411.60
-2019-01-01,412.10
-2019-02-01,412.55
-2019-03-01,413.40
-2019-04-01,414.20
-2019-05-01,415.00
-2019-06-01,415.30
-2019-07-01,414.95
-2019-08-01,414.50
-2019-09-01,414.85
-2019-10-01,415.90
-2019-11-01,416.70
-2019-12-01,417.10
-2020-01-01,417.40
-2020-02-01,417.85
-2020-03-01,417.95
-2020-04-01,416.80
-2020-05-01,417.20
-2020-06-01,417.65
-2020-07-01,418.10
-2020-08-01,418.45
-2020-09-01,418.75
-2020-10-01,419.30
-2020-11-01,419.90
-2020-12-01,420.35
-2021-01-01,421.00
-2021-02-01,421.50
-2021-03-01,421.95
-2021-04-01,422.40
-2021-05-01,422.85
-2021-06-01,423.20
-2021-07-01,423.60
-2021-08-01,423.95
-2021-09-01,424.20
-2021-10-01,424.75
-2021-11-01,425.10
-2021-12-01,425.60
-2022-01-01,426.10
-2022-02-01,426.55
-2022-03-01,426.95
-2022-04-01,427.30
-2022-05-01,427.80
-2022-06-01,428.10
-2022-07-01,428.45
-2022-08-01,428.80
-2022-09-01,429.05
-2022-10-01,429.50
-2022-11-01,429.95
-2022-12-01,430.30
-2023-01-01,430.75
-2023-02-01,431.10
-2023-03-01,431.55
-2023-04-01,431.90
-2023-05-01,432.30
-2023-06-01,432.65
-2023-07-01,432.95
-2023-08-01,433.20
-2023-09-01,433.55
-2023-10-01,433.90
-2023-11-01,434.20
-2023-12-01,434.60
+import React, { useEffect, useMemo, useState } from 'react';
+import Globe from 'react-globe.gl';
+
+const API_BASE = 'http://localhost:8000';
+
+function App() {
+  const [email, setEmail] = useState('demo@earthdetective.app');
+  const [password, setPassword] = useState('password123');
+  const [token, setToken] = useState('');
+  const [points, setPoints] = useState([]);
+  const [datasets, setDatasets] = useState([]);
+  const [selectedDataset, setSelectedDataset] = useState('oco2');
+  const [file, setFile] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/globe`)
+      .then((res) => res.json())
+      .then((data) => setPoints(data.points || []));
+
+    fetch(`${API_BASE}/api/datasets`)
+      .then((res) => res.json())
+      .then((data) => {
+        setDatasets(data);
+        if (data.length) setSelectedDataset(data[0].id);
+      });
+  }, []);
+
+  const metrics = useMemo(() => [
+    { label: 'Active datasets', value: '28', delta: '+12%' },
+    { label: 'Trend alerts', value: '9', delta: '+4%' },
+    { label: 'Avg. confidence', value: '94%', delta: '+6%' },
+    { label: 'System shift', value: '17', delta: '+3%' },
+  ], []);
+
+  const sparkbars = [48, 52, 40, 58, 64, 90, 78, 82, 88, 93, 85, 96];
+
+  const handleLogin = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const signupResponse = await fetch(`${API_BASE}/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const signupData = await signupResponse.json();
+        if (!signupResponse.ok) throw new Error(signupData.detail || 'Signup failed');
+        setToken(signupData.token);
+        alert('Signed up successfully');
+        return;
+      }
+
+      const data = await response.json();
+      setToken(data.token);
+      alert('Welcome back.');
+    } catch (err) {
+      alert(err.message || 'Authentication failed');
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) {
+      alert('Select a CSV file to run the trend detector.');
+      return;
+    }
+
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/trend/upload-csv`, {
+        method: 'POST',
+        body: form,
+      });
+      const data = await response.json();
+      setAnalysis(data);
+    } catch (err) {
+      alert('Trend analysis failed');
+    }
+  };
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">E</div>
+          <div>
+            <div className="brand-name">Earth Detective</div>
+            <div className="brand-sub">NASA Space Apps Challenge</div>
+          </div>
+        </div>
+        <nav className="nav">
+          <a href="#features">Features</a>
+          <a href="#dashboard">Dashboard</a>
+          <a href="#analytics">Analytics</a>
+          <button className="primary-button" onClick={handleLogin}>Sign In</button>
+        </nav>
+      </header>
+
+      <main>
+        <section className="hero">
+          <div>
+            <div className="eyebrow">Earth System Trend Detective</div>
+            <h1>Detect planetary change in real time.</h1>
+            <p>
+              Explore atmospheric CO₂, vegetation stress, and sea-level dynamics with a NASA-inspired
+              monitoring platform built for understanding Earth system signals.
+            </p>
+            <div className="hero-actions">
+              <button className="primary-button">Explore Trends</button>
+              <button className="secondary-button">View Demo</button>
+            </div>
+          </div>
+
+          <div className="globe-card">
+            <div className="globe-wrap">
+              <Globe
+                width={520}
+                height={440}
+                backgroundColor="rgba(0,0,0,0)"
+                globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+                pointsData={points}
+                pointAltitude="value"
+                pointRadius={0.2}
+                pointColor={(p) => p.color}
+                labelsData={points}
+                labelLat={(p) => p.lat}
+                labelLng={(p) => p.lng}
+                labelText={(p) => p.name}
+                labelSize={1.2}
+                labelDotRadius={0.3}
+                labelColor={() => '#edf7ff'}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section id="features" className="metrics">
+          {metrics.map((m, idx) => (
+            <div key={idx} className="metric-card">
+              <div className="label">{m.label}</div>
+              <div className="value">{m.value}</div>
+              <div className="delta">{m.delta}</div>
+            </div>
+          ))}
+        </section>
+
+        <section id="dashboard" className="main-grid">
+          <div className="panel">
+            <div className="panel-header">
+              <h3 className="panel-title">Trend dashboard</h3>
+              <span className="badge">Updated 2m ago</span>
+            </div>
+            <div className="sparkline">
+              {sparkbars.map((value, index) => (
+                <div
+                  key={index}
+                  className="sparkline-bar"
+                  style={{ height: `${value}%`, opacity: 0.9 - index * 0.04 }}
+                />
+              ))}
+            </div>
+
+            <div className="status-row">
+              <span>Selected dataset</span>
+              <strong>{selectedDataset || 'oco2'}</strong>
+            </div>
+            <div className="status-row">
+              <span>Trend signal</span>
+              <strong>Strong positive anomaly</strong>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <h3 className="panel-title">Trend analyzer</h3>
+            </div>
+            <div className="form-grid">
+              <label className="field">
+                <span>Email</span>
+                <input value={email} onChange={(e) => setEmail(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Password</span>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Dataset</span>
+                <select value={selectedDataset} onChange={(e) => setSelectedDataset(e.target.value)}>
+                  {datasets.map((ds) => (
+                    <option key={ds.id} value={ds.id}>{ds.name}</option>
+                  ))}
+                </select>
+              </label>
+              <button className="primary-button" onClick={handleLogin}>Login / Signup</button>
+              <input className="field" type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              <button className="action-button" onClick={handleUpload}>Run trend detection</button>
+            </div>
+
+            {analysis && (
+              <div className="result-box">{JSON.stringify(analysis, null, 2)}</div>
+            )}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+export default App;

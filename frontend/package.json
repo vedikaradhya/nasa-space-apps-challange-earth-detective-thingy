@@ -1,0 +1,152 @@
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from datetime import datetime, timedelta
+import os
+import pandas as pd
+
+from auth import create_token, hash_password, verify_password, decode_token
+from db import init_db, get_db
+from models import User
+from schemas import TrendPayload
+from trend import analyze_trend_from_dataframe
+
+app = FastAPI(title="Earth Detective API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/signup")
+async def signup(user: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == user.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    db_user = User(email=user.email, password_hash=hash_password(user.password))
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    token = create_token(user.email)
+    return {"token": token, "user": {"email": user.email}}
+
+
+@app.post("/login")
+async def login(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if not db_user or not verify_password(user.password, db_user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = create_token(user.email)
+    return {"token": token, "user": {"email": user.email}}
+
+
+@app.get("/api/datasets")
+async def list_datasets():
+    return [
+        {
+            "id": "oco2",
+            "name": "OCO-2 atmospheric CO₂",
+            "description": "Atmospheric carbon dioxide trends from NASA OCO-2 observations.",
+            "source": "NASA OCO-2",
+            "unit": "ppm",
+        },
+        {
+            "id": "modis",
+            "name": "MODIS vegetation index",
+            "description": "Vegetation greenness and land-surface change over time.",
+            "source": "NASA MODIS",
+            "unit": "NDVI",
+        },
+        {
+            "id": "sea_level",
+            "name": "Sea-level anomaly",
+            "description": "Sea-level anomaly trends from altimetry records.",
+            "source": "NASA Sentinel-6 / AVISO",
+            "unit": "mm",
+        },
+    ]
+
+
+@app.get("/api/datasets/sample")
+async def sample_dataset():
+    csv_path = os.path.join(os.path.dirname(__file__), "sample_data", "co2_sample.csv")
+    if not os.path.exists(csv_path):
+        raise HTTPException(status_code=404, detail="Sample dataset not found")
+    return FileResponse(csv_path, media_type="text/csv", filename="co2_sample.csv")
+
+
+@app.get("/api/globe")
+async def globe_points():
+    points = [
+        {"lat": 13.7563, "lng": 100.5018, "value": 0.85, "color": "#4ecdc4", "name": "Bangkok"},
+        {"lat": 1.3521, "lng": 103.8198, "value": 0.72, "color": "#67e8f9", "name": "Singapore"},
+        {"lat": 34.0522, "lng": -118.2437, "value": 0.9, "color": "#7ae582", "name": "Los Angeles"},
+        {"lat": 35.6762, "lng": 139.6503, "value": 0.8, "color": "#f6c453", "name": "Tokyo"},
+        {"lat": -33.8688, "lng": 151.2093, "value": 0.78, "color": "#ff9f43", "name": "Sydney"},
+        {"lat": 51.5072, "lng": -0.1276, "value": 0.67, "color": "#ff6b6b", "name": "London"},
+    ]
+    return {"points": points}
+
+
+@app.post("/api/trend/upload-csv")
+async def upload_csv(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+
+    contents = await file.read()
+    df = pd.read_csv(io.BytesIO(contents))
+
+    if "date" in df.columns and "value" in df.columns:
+        df = df[["date", "value"]].copy()
+    elif len(df.columns) >= 2:
+        df = df.iloc[:, :2].copy()
+        df.columns = ["date", "value"]
+    else:
+        raise HTTPException(status_code=400, detail="CSV must contain date/value columns")
+
+    result = analyze_trend_from_dataframe(df, date_col="date", value_col="value")
+    return result
+
+
+@app.post("/api/trend/analyze")
+async def analyze_json(payload: TrendPayload = Body(...)):
+    if not payload.data:
+        raise HTTPException(status_code=400, detail="No data provided")
+    df = pd.DataFrame(payload.data)
+    if "date" not in df.columns or "value" not in df.columns:
+        raise HTTPException(status_code=400, detail="Payload must include date and value")
+    return analyze_trend_from_dataframe(df, date_col="date", value_col="value")
+
+
+@app.get("/api/healthchecks")
+async def healthchecks():
+    return {
+        "database": "ok",
+        "ingest": "ready",
+        "3d_globe": "ready",
+        "auth": "ready",
+        "datasets": ["oco2", "modis", "sea_level"],
+    }
