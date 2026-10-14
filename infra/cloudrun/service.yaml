@@ -1,0 +1,16 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: earth-detective-backend
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/YOUR_PROJECT/earth-detective-backend:latest
+          env:
+            - name: DATABASE_URL
+              value: "${DATABASE_URL}"
+            - name: REDIS_URL
+              value: "${REDIS_URL}"
+            - name: NASA_API_KEY
+              value: "${NASA_API_KEY}"

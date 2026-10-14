@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: earth-detective-backend
+    env: docker
+    dockerfilePath: backend/docker/Dockerfile
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+      - key: REDIS_URL
+      - key: NASA_API_KEY
+
+  - type: worker
+    name: earth-detective-worker
+    env: docker
+    dockerfilePath: backend/docker/Dockerfile
+    command: ["celery", "-A", "celery_worker.celery_app", "worker", "--loglevel=info"]
+    plan: free
